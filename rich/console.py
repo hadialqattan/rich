@@ -32,6 +32,8 @@ from typing import (
     cast,
 )
 
+from rich._windows_renderer import buffer_to_win32_calls
+
 if sys.version_info >= (3, 8):
     from typing import Literal, Protocol, runtime_checkable
 else:
@@ -568,7 +570,8 @@ def get_windows_console_features() -> "WindowsConsoleFeatures":  # pragma: no co
 
 def detect_legacy_windows() -> bool:
     """Detect legacy Windows."""
-    return WINDOWS and not get_windows_console_features().vt
+    # return WINDOWS and not get_windows_console_features().vt
+    return True
 
 
 if detect_legacy_windows():  # pragma: no cover
@@ -1916,21 +1919,25 @@ class Console:
                     display(self._buffer, self._render_buffer(self._buffer[:]))
                     del self._buffer[:]
                 else:
-                    text = self._render_buffer(self._buffer[:])
-                    del self._buffer[:]
-                    if text:
+                    if WINDOWS:
+                        if self.legacy_windows:
+                            buffer_to_win32_calls(self._buffer[:], self.file)
+                        else:
+                            text = self._render_buffer(self._buffer[:])
+                            # https://bugs.python.org/issue37871
+                            write = self.file.write
+                            for line in text.splitlines(True):
+                                write(line)
+                    else:
+                        text = self._render_buffer(self._buffer[:])
                         try:
-                            if WINDOWS:  # pragma: no cover
-                                # https://bugs.python.org/issue37871
-                                write = self.file.write
-                                for line in text.splitlines(True):
-                                    write(line)
-                            else:
-                                self.file.write(text)
+                            self.file.write(text)
                             self.file.flush()
                         except UnicodeEncodeError as error:
                             error.reason = f"{error.reason}\n*** You may need to add PYTHONIOENCODING=utf-8 to your environment ***"
                             raise
+
+                    del self._buffer[:]
 
     def _render_buffer(self, buffer: Iterable[Segment]) -> str:
         """Render buffered output, and clear buffer."""
