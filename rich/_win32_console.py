@@ -28,6 +28,7 @@ else:
     class WindowsCoordinates(NamedTuple):
         """Coordinates in the Windows Console API are (y, x), not (x, y).
         This class is intended to prevent that confusion.
+        Rows and columns are indexed from 0.
         This class can be used in place of wintypes._COORD in arguments and argtypes.
         """
 
@@ -37,6 +38,11 @@ else:
         @classmethod
         def from_param(cls, value: "WindowsCoordinates") -> COORD:
             return COORD(value.row, value.col)
+
+        def shift(self, row_shift: int, col_shift) -> "WindowsCoordinates":
+            return WindowsCoordinates(
+                row=self.row + row_shift, col=self.col + col_shift
+            )
 
     class CONSOLE_SCREEN_BUFFER_INFO(Structure):
         _fields_ = [
@@ -123,6 +129,25 @@ else:
         _GetConsoleScreenBufferInfo(std_handle, byref(console_screen_buffer_info))
         return console_screen_buffer_info
 
+    _SetConsoleCursorPosition = windll.kernel32.SetConsoleCursorPosition
+    _SetConsoleCursorPosition.argtypes = [
+        wintypes.HANDLE,
+        WindowsCoordinates,
+    ]
+    _SetConsoleCursorPosition.restype = wintypes.BOOL
+
+    def SetConsoleCursorPosition(
+        std_handle: wintypes.HANDLE, coords: WindowsCoordinates
+    ) -> bool:
+        if coords.col < 0 or coords.row < 0:
+            return False
+
+        small_rect = GetConsoleScreenBufferInfo(std_handle).srWindow
+        adjusted_coords = coords.shift(
+            row_shift=small_rect.Top, col_shift=small_rect.Left
+        )
+        return _SetConsoleCursorPosition(std_handle, adjusted_coords)
+
     class LegacyWindowsTerm:
 
         # WINDOWS_COLORS = {
@@ -136,8 +161,8 @@ else:
         #     "grey": 7,
         # }
 
-        # Indexes are ANSI color numbers, values are the corresponding Windows Console API color numbers
-        ANSI_TO_WINDOWS = [0, 4, 2, 6, 1, 5, 3, 7]
+        # Keys are ANSI color numbers, values are the corresponding Windows Console API color numbers
+        ANSI_TO_WINDOWS = {0: 0, 1: 4, 2: 2, 3: 6, 4: 1, 5: 5, 6: 3, 7: 7}
 
         def __init__(self, file: IO[str] = sys.stdout):
             self.file = file
@@ -161,13 +186,13 @@ else:
             # Downgrade the colors to pull them into the range of the Windows palette
             if style.color:
                 fore = style.color.downgrade(ColorSystem.WINDOWS).number
-                fore = self.ANSI_TO_WINDOWS[fore]
+                fore = self.ANSI_TO_WINDOWS.get(fore, self._default_fore)
             else:
                 fore = self._default_fore
 
             if style.bgcolor:
                 back = style.bgcolor.downgrade(ColorSystem.WINDOWS).number
-                back = self.ANSI_TO_WINDOWS[back]
+                back = self.ANSI_TO_WINDOWS.get(back, self._default_back)
             else:
                 back = self._default_back
 
@@ -177,8 +202,8 @@ else:
             self.write_text(text)
             SetConsoleTextAttribute(self._handle, attributes=self._default_text)
 
-        def move_cursor(self, new_position: WindowsCoordinates) -> None:
-            pass
+        def move_cursor_to(self, new_position: WindowsCoordinates) -> None:
+            SetConsoleCursorPosition(self._handle, new_position)
 
     if __name__ == "__main__":
         handle = GetStdHandle()
@@ -205,3 +230,4 @@ else:
         console.print("[bold black on cyan]Hello world!")
         console.print("[black on green]Hello world!")
         console.print("[blue on green]Hello world!")
+        console.print("[#1BB152 on #DA812D]Hello world!")

@@ -570,8 +570,7 @@ def get_windows_console_features() -> "WindowsConsoleFeatures":  # pragma: no co
 
 def detect_legacy_windows() -> bool:
     """Detect legacy Windows."""
-    # return WINDOWS and not get_windows_console_features().vt
-    return True
+    return WINDOWS and not get_windows_console_features().vt
 
 
 if detect_legacy_windows():  # pragma: no cover

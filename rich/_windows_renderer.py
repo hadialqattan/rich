@@ -7,7 +7,7 @@ from rich.segment import Segment
 def buffer_to_win32_calls(buffer: Iterable[Segment], file: IO[str]) -> None:
     term = LegacyWindowsTerm(file)
     for segment in buffer:
-        print("/", end="")
+        # print("/", end="")
         text = segment.text
         style = segment.style
         if style:
