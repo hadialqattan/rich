@@ -1,17 +1,25 @@
-from typing import IO, Iterable
+from typing import IO, Iterable, Sequence
 
-from rich._win32_console import LegacyWindowsTerm
-from rich.segment import Segment
+from rich._win32_console import LegacyWindowsTerm, WindowsCoordinates
+from rich.segment import ControlCode, ControlType, Segment
 
 
-def buffer_to_win32_calls(buffer: Iterable[Segment], file: IO[str]) -> None:
+def legacy_windows_render(buffer: Iterable[Segment], file: IO[str]) -> None:
     term = LegacyWindowsTerm(file)
     for segment in buffer:
         # print("/", end="")
-        text = segment.text
-        style = segment.style
+        text, style, control = segment
         if style:
             term.write_styled(text, segment.style)
         else:
             term.write_text(text)
+
+        control_codes: Sequence[ControlCode] = control or []
+        for control_code in control_codes:
+            control_type = control_code[0]
+            if control_type == ControlType.CURSOR_MOVE_TO:
+                # TODO
+                _, x, y = control_code
+                term.move_cursor_to(WindowsCoordinates(row=y - 1, col=x - 1))
+
         # print(f"/[{segment}]", end="")

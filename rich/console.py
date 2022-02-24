@@ -32,7 +32,7 @@ from typing import (
     cast,
 )
 
-from rich._windows_renderer import buffer_to_win32_calls
+from rich._windows_renderer import legacy_windows_render
 
 if sys.version_info >= (3, 8):
     from typing import Literal, Protocol, runtime_checkable
@@ -571,12 +571,6 @@ def get_windows_console_features() -> "WindowsConsoleFeatures":  # pragma: no co
 def detect_legacy_windows() -> bool:
     """Detect legacy Windows."""
     return WINDOWS and not get_windows_console_features().vt
-
-
-if detect_legacy_windows():  # pragma: no cover
-    from colorama import init
-
-    init(strip=False)
 
 
 class Console:
@@ -1920,7 +1914,7 @@ class Console:
                 else:
                     if WINDOWS:
                         if self.legacy_windows:
-                            buffer_to_win32_calls(self._buffer[:], self.file)
+                            legacy_windows_render(self._buffer[:], self.file)
                         else:
                             text = self._render_buffer(self._buffer[:])
                             # https://bugs.python.org/issue37871

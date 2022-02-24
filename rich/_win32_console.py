@@ -205,6 +205,9 @@ else:
         def move_cursor_to(self, new_position: WindowsCoordinates) -> None:
             SetConsoleCursorPosition(self._handle, new_position)
 
+        def erase_in_line(self) -> None:
+            pass
+
     if __name__ == "__main__":
         handle = GetStdHandle()
         console_mode = wintypes.DWORD()
@@ -230,4 +233,4 @@ else:
         console.print("[bold black on cyan]Hello world!")
         console.print("[black on green]Hello world!")
         console.print("[blue on green]Hello world!")
-        console.print("[#1BB152 on #DA812D]Hello world!")
+        console.print("[#1BB152 on #DA812D]Hello\nworld!")
