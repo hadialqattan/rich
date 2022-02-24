@@ -125,22 +125,30 @@ else:
 
     class LegacyWindowsTerm:
 
-        WINDOWS_COLORS = {
-            "black": 0,
-            "blue": 1,
-            "green": 2,
-            "cyan": 3,
-            "red": 4,
-            "magenta": 5,
-            "yellow": 6,
-            "grey": 7,
-        }
+        # WINDOWS_COLORS = {
+        #     "black": 0,
+        #     "blue": 1,
+        #     "green": 2,
+        #     "cyan": 3,
+        #     "red": 4,
+        #     "magenta": 5,
+        #     "yellow": 6,
+        #     "grey": 7,
+        # }
+
+        # Indexes are ANSI color numbers, values are the corresponding Windows Console API color numbers
+        ANSI_TO_WINDOWS = [0, 4, 2, 6, 1, 5, 3, 7]
 
         def __init__(self, file: IO[str] = sys.stdout):
             self.file = file
             handle = GetStdHandle(STDOUT)
             self._handle = handle
-            self._default_attributes = GetConsoleScreenBufferInfo(handle).wAttributes
+            default_text = GetConsoleScreenBufferInfo(handle).wAttributes
+            self._default_text = default_text
+
+            self._default_fore = default_text & 7
+            self._default_back = (default_text >> 4) & 7
+            # self._style = default_text & (WinStyle.BRIGHT | WinStyle.BRIGHT_BACKGROUND)
 
             self.write = file.write
             self.flush = file.flush
@@ -150,21 +158,27 @@ else:
             self.flush()
 
         def write_styled(self, text: str, style: Style) -> None:
-            fore = style.color.name  # .downgrade(ColorSystem.WINDOWS).number or 1
-            back = style.bgcolor.name  # .downgrade(ColorSystem.WINDOWS).number or 1
+            # Downgrade the colors to pull them into the range of the Windows palette
+            if style.color:
+                fore = style.color.downgrade(ColorSystem.WINDOWS).number
+                fore = self.ANSI_TO_WINDOWS[fore]
+            else:
+                fore = self._default_fore
 
-            # TODO: Write now we're just looking up the number associated with the ANSI name,
-            #  so this only works for ANSI colors at the moment.
-            #  Do we want Color.downgrade(WINDOWS) to return a Color with a number that we can
-            #  use to index into WINDOWS_PALETTE?
-            fore_idx = self.WINDOWS_COLORS[fore]
-            back_idx = self.WINDOWS_COLORS[back]
+            if style.bgcolor:
+                back = style.bgcolor.downgrade(ColorSystem.WINDOWS).number
+                back = self.ANSI_TO_WINDOWS[back]
+            else:
+                back = self._default_back
 
             SetConsoleTextAttribute(
-                self._handle, attributes=ctypes.c_ushort(fore_idx + back_idx * 16)
+                self._handle, attributes=ctypes.c_ushort(fore + back * 16)
             )
             self.write_text(text)
-            SetConsoleTextAttribute(self._handle, attributes=self._default_attributes)
+            SetConsoleTextAttribute(self._handle, attributes=self._default_text)
+
+        def move_cursor(self, new_position: WindowsCoordinates) -> None:
+            pass
 
     if __name__ == "__main__":
         handle = GetStdHandle()
@@ -182,7 +196,12 @@ else:
         from rich.console import Console
 
         console = Console()
-
         text = Text("Hello world!", style=style)
-
         console.print(text)
+
+        console.print("[bold green]Hello world!")
+        console.print("[italic cyan]Hello world!")
+        console.print("[bold black on blue]Hello world!")
+        console.print("[bold black on cyan]Hello world!")
+        console.print("[black on green]Hello world!")
+        console.print("[blue on green]Hello world!")
