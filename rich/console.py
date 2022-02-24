@@ -11,7 +11,6 @@ from getpass import getpass
 from html import escape
 from inspect import isclass
 from itertools import islice
-from threading import RLock
 from time import monotonic
 from types import FrameType, ModuleType, TracebackType
 from typing import (
@@ -31,8 +30,6 @@ from typing import (
     Union,
     cast,
 )
-
-from rich._windows_renderer import legacy_windows_render
 
 if sys.version_info >= (3, 8):
     from typing import Literal, Protocol, runtime_checkable
@@ -1914,6 +1911,8 @@ class Console:
                 else:
                     if WINDOWS:
                         if self.legacy_windows:
+                            from rich._windows_renderer import legacy_windows_render
+
                             legacy_windows_render(self._buffer[:], self.file)
                         else:
                             text = self._render_buffer(self._buffer[:])
