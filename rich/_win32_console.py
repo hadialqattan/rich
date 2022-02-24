@@ -37,12 +37,7 @@ else:
 
         @classmethod
         def from_param(cls, value: "WindowsCoordinates") -> COORD:
-            return COORD(value.row, value.col)
-
-        def shift(self, row_shift: int, col_shift) -> "WindowsCoordinates":
-            return WindowsCoordinates(
-                row=self.row + row_shift, col=self.col + col_shift
-            )
+            return COORD(value.col, value.row)
 
     class CONSOLE_SCREEN_BUFFER_INFO(Structure):
         _fields_ = [
@@ -85,20 +80,44 @@ else:
         std_handle: wintypes.HANDLE,
         char: str,
         length: int,
-        start_coords: WindowsCoordinates,
+        start: WindowsCoordinates,
     ) -> int:
         """Writes a character to the console screen buffer a specified number of times, beginning at the specified coordinates."""
         assert len(char) == 1
         char = ctypes.c_char(char.encode())
         length = wintypes.DWORD(length)
         num_written = wintypes.DWORD(0)
-        x, y = start_coords
+        x, y = start
         _FillConsoleOutputCharacterW(
             std_handle,
             char,
             length,
             WindowsCoordinates(row=y, col=x),
             byref(num_written),
+        )
+        return num_written.value
+
+    _FillConsoleOutputAttribute = windll.kernel32.FillConsoleOutputAttribute
+    _FillConsoleOutputAttribute.argtypes = [
+        wintypes.HANDLE,
+        wintypes.WORD,
+        wintypes.DWORD,
+        WindowsCoordinates,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _FillConsoleOutputAttribute.restype = wintypes.BOOL
+
+    def FillConsoleOutputAttribute(
+        std_handle: wintypes.HANDLE,
+        attributes: int,
+        length: int,
+        start: WindowsCoordinates,
+    ) -> int:
+        length = wintypes.DWORD(length)
+        attributes = wintypes.WORD(attributes)
+        num_written = wintypes.DWORD(0)
+        _FillConsoleOutputAttribute(
+            std_handle, attributes, length, start, byref(num_written)
         )
         return num_written.value
 
@@ -112,7 +131,7 @@ else:
     def SetConsoleTextAttribute(
         std_handle: wintypes.HANDLE, attributes: wintypes.WORD
     ) -> bool:
-        # TODO: Check the actual return types - it probably isnt a bool, will likely be wintypes.BOOL
+        # TODO: Check the actual return types - it probably isn't a bool, will likely be wintypes.BOOL
         return _SetConsoleTextAttribute(std_handle, attributes)
 
     _GetConsoleScreenBufferInfo = windll.kernel32.GetConsoleScreenBufferInfo
@@ -141,12 +160,7 @@ else:
     ) -> bool:
         if coords.col < 0 or coords.row < 0:
             return False
-
-        small_rect = GetConsoleScreenBufferInfo(std_handle).srWindow
-        adjusted_coords = coords.shift(
-            row_shift=small_rect.Top, col_shift=small_rect.Left
-        )
-        return _SetConsoleCursorPosition(std_handle, adjusted_coords)
+        return _SetConsoleCursorPosition(std_handle, coords)
 
     class LegacyWindowsTerm:
 
@@ -175,15 +189,28 @@ else:
             self._default_back = (default_text >> 4) & 7
             # self._style = default_text & (WinStyle.BRIGHT | WinStyle.BRIGHT_BACKGROUND)
 
+            self._default_attrs = self._default_fore + self._default_back * 16
+
             self.write = file.write
             self.flush = file.flush
+
+        @property
+        def cursor_position(self) -> WindowsCoordinates:
+            """Returns the current position of the cursor (0-based)"""
+            coord: COORD = GetConsoleScreenBufferInfo(self._handle).dwCursorPosition
+            return WindowsCoordinates(row=coord.Y, col=coord.X)
+
+        @property
+        def screen_size(self) -> WindowsCoordinates:
+            """Returns the current size of the console screen buffer, in character columns and rows"""
+            screen_size: COORD = GetConsoleScreenBufferInfo(self._handle).dwSize
+            return WindowsCoordinates(row=screen_size.Y, col=screen_size.X)
 
         def write_text(self, text: str) -> None:
             self.write(text)
             self.flush()
 
         def write_styled(self, text: str, style: Style) -> None:
-            # Downgrade the colors to pull them into the range of the Windows palette
             if style.color:
                 fore = style.color.downgrade(ColorSystem.WINDOWS).number
                 fore = self.ANSI_TO_WINDOWS.get(fore, self._default_fore)
@@ -205,8 +232,36 @@ else:
         def move_cursor_to(self, new_position: WindowsCoordinates) -> None:
             SetConsoleCursorPosition(self._handle, new_position)
 
-        def erase_in_line(self) -> None:
-            pass
+        def erase_line(self) -> None:
+            screen_size = self.screen_size
+            cursor_position = self.cursor_position
+            cells_to_erase = screen_size.col
+            start_coordinates = WindowsCoordinates(cursor_position.row, 0)
+            FillConsoleOutputCharacter(
+                self._handle, " ", cells_to_erase, start_coordinates
+            )
+
+        def erase_end_of_line(self) -> None:
+            cursor_position = self.cursor_position
+            cells_to_erase = self.screen_size.col - cursor_position.col
+            FillConsoleOutputCharacter(
+                self._handle, " ", cells_to_erase, cursor_position
+            )
+
+        def move_cursor_up(self):
+            cursor_position = self.cursor_position
+            SetConsoleCursorPosition(
+                self._handle,
+                WindowsCoordinates(
+                    row=cursor_position.row - 1, col=cursor_position.col
+                ),
+            )
+
+        def move_cursor_line_start(self):
+            cursor_position = self.cursor_position
+            SetConsoleCursorPosition(
+                self._handle, WindowsCoordinates(cursor_position.row, 0)
+            )
 
     if __name__ == "__main__":
         handle = GetStdHandle()
@@ -218,19 +273,43 @@ else:
 
         style = Style(color="black", bgcolor="red")
 
-        # term = LegacyWindowsTerm()
-        # term.write_styled("Hello, world!", style)
-
         from rich.console import Console
 
         console = Console()
         text = Text("Hello world!", style=style)
         console.print(text)
 
-        console.print("[bold green]Hello world!")
-        console.print("[italic cyan]Hello world!")
-        console.print("[bold black on blue]Hello world!")
-        console.print("[bold black on cyan]Hello world!")
-        console.print("[black on green]Hello world!")
-        console.print("[blue on green]Hello world!")
-        console.print("[#1BB152 on #DA812D]Hello\nworld!")
+        # console.print("[bold green]Hello world!")
+        # console.print("[italic cyan]Hello world!")
+        # console.print("[bold black on blue]Hello world!")
+        # console.print("[bold black on cyan]Hello world!")
+        # console.print("[black on green]Hello world!")
+        # console.print("[blue on green]Hello world!")
+        # console.print("[#1BB152 on #DA812D]Hello\nworld!")
+
+        term = LegacyWindowsTerm()
+        # print("0. Initial position:", term.cursor_position)
+        # term.write_styled("Hello, world!", style)
+        # print("1. After write_styled:", term.cursor_position)
+        # term.move_cursor_up()
+        # print("2. After move_cursor_up:", term.cursor_position)
+        # term.write_styled("2nd", style)
+        # print("3. After write_styled:", term.cursor_position)
+        # term.erase_end_of_line()
+
+        term.write_text("Hello, world!")
+        print()
+        print()
+        print()
+        print()
+        print()
+        print("1", term.cursor_position)
+        print("aksjdlaskjd", end="")
+        term.move_cursor_up()
+        term.move_cursor_up()
+        term.move_cursor_up()
+        term.move_cursor_up()
+        term.move_cursor_up()
+        print("2", term.cursor_position, end="")
+        term.move_cursor_up()
+        print("3", term.cursor_position, end="")
