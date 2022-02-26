@@ -1,6 +1,4 @@
 import itertools
-from rich.style import Style
-from rich.table import _Cell
 from rich.tabulate import tabulate_mapping
 
 

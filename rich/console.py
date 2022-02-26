@@ -11,7 +11,6 @@ from getpass import getpass
 from html import escape
 from inspect import isclass
 from itertools import islice
-from threading import RLock
 from time import monotonic
 from types import FrameType, ModuleType, TracebackType
 from typing import (
